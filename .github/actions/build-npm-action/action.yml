@@ -1,0 +1,113 @@
+name: Node Install Action
+description: "Install and buid Node project"
+
+inputs:
+  config-map:
+      required: false
+      description: "Config map"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set Node vars from config map
+      id: set-vars
+      run: |
+        python3 ${{ github.action_path }}/main.py 'set-vars' ${{ toJson(inputs.config-map) }}
+      shell: bash
+
+    - name: Check environment for installed Node
+      id: check-node-version
+      run: |
+        node --version
+        echo "node-version=$(node --version | cut -d . -f1 | cut -d v -f2 | xargs)" >> $GITHUB_OUTPUT
+      shell: bash
+      continue-on-error: true
+ 
+    # # commenting until nvm is supported on runner
+    # - name: Install Node
+    #   id: check-npm-version
+    #   if: steps.set-vars.outputs.runtime-version
+    #   run: |
+    #     nvm install ${{ steps.set-vars.outputs.node-version }}
+    #     nvm use ${{ steps.set-vars.outputs.node-version }}
+    #   shell: bash
+    #   continue-on-error: true
+    - name: Install Node
+      uses: actions/setup-node@v4
+      if: steps.set-vars.outputs.runtime-version
+      with:
+        node-version: ${{ steps.set-vars.outputs.runtime-version }}
+        
+    - name: Check for existing cache
+      uses: actions/cache@v4.2.0
+      env:
+        cache-name: npm-cache
+      with:
+        path: /home/runner/.npm
+        key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('package.json') }}
+        restore-keys: |
+          ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('package.json') }}
+
+    - name: Build with Node
+      run: |
+        export LOG_LEVEL="ERROR"
+        find ${{ github.workspace }} -name yarn.lock -type f -delete
+        find ${{ github.workspace }} -name 'package-lock.json' -type f -delete
+        rm -rf ${{ github.workspace }}/.github
+        if [[ -f .npmrc ]]; then sed -i '/^registry/d' .npmrc; fi;
+        npm i npm-snapshot
+        ${{ steps.set-vars.outputs.args-build }}
+      shell: bash
+      if: steps.set-vars.outputs.build-tool != 'angular'
+
+    - name: build with Angular
+      run: |
+        npm install
+        export NODE_OPTIONS=--openssl-legacy-provider
+        ng build
+        ng test
+        npm publish
+      shell: bash
+      if: steps.set-vars.outputs.build-tool == 'angular'
+  
+    - name: Generate test report
+      id: generate-test-report
+      run: |       
+        python3 ${{ github.action_path }}/main.py 'generate-report' ${{ toJson(inputs.config-map) }}
+      shell: bash
+      if: steps.set-vars.outputs.test-flag-enabled == 'true'
+
+    - name: Upload Cobertura Report
+      uses: actions/upload-artifact@v3
+      with:
+        name: cobertura-html-report
+        path: ${{ steps.generate-test-report.outputs.cobertura-report-path }}
+        retention-days: 7
+      if: ${{ steps.generate-test-report.outputs.cobertura-report-path && github.event_name != 'pull_request' }} 
+
+    - name: Upload LCOV Report
+      uses: actions/upload-artifact@v3
+      with:
+        name: lcov-html-report
+        path: ${{ steps.generate-test-report.outputs.lcov-html-report-path }}
+        retention-days: 7
+      if: ${{ steps.generate-test-report.outputs.lcov-html-report-path && github.event_name != 'pull_request' }}     
+      
+    - name: LCOV Report Generation for Enterprise
+      uses: actions/upload-artifact@v3
+      with:
+        name: "Code coverage results"
+        path: |
+          ${{ steps.generate-test-report.outputs.lcov-report-path }}
+      if: |
+        steps.generate-test-report.outputs.lcov-html-report-path &&
+        (inputs.org-folder != 'CDO-KP-ORG' && inputs.org-folder != 'SDS')
+
+    - name: Create project cache
+      uses: actions/cache@v4.2.0
+      env:
+        cache-name: npm-cache
+      with:
+        path: /home/runner/.npm
+        key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('package.json') }}
+      continue-on-error: true
