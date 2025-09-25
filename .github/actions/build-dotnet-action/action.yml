@@ -1,0 +1,76 @@
+name: Dotnet Build Action
+description: "Build DotNet artifact"
+
+inputs:
+  config-map:
+      required: false
+      description: "Config map"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set dotnet vars from config map
+      id: set-vars
+      run: |
+        python3 ${{ github.action_path }}/main.py 'set-vars' ${{ toJson(inputs.config-map) }}
+      shell: bash
+
+    - name: Check for existing cache
+      uses: actions/cache@v4.2.0
+      env:
+        cache-name: nuget-cache
+      with:
+        path: ~/.nuget/packages
+        key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('**/*.csproj') }}
+        restore-keys: |
+          ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+    
+    - name: Build with DotNet
+      run: |
+        dotnet new globaljson --sdk-version ${{ steps.set-vars.outputs.runtime-version }}
+        dotnet clean
+        rm -rf ${{ github.workspace }}/bin
+        rm -rf ${{ github.workspace }}/tmp
+        rm -rf ${{ github.workspace }}/obj
+        echo ${{ steps.set-vars.outputs.args-build }}
+        ${{ steps.set-vars.outputs.args-build }}
+        artName=${{ steps.set-vars.outputs.app-name }}-${{ steps.set-vars.outputs.app-version }}.zip
+        echo $artName
+        zip -r $artName ./*
+        ls -altr
+      shell: bash
+
+    - name: Run unit tests and report coverage
+      id: run-test
+      if: |
+        steps.set-vars.outputs.test-flag-enabled == 'true' &&
+        steps.set-vars.outputs.args-test != 'false'
+      run: |
+        echo ${{ steps.set-vars.outputs.args-test }}
+        ${{ steps.set-vars.outputs.args-test }}
+        mkdir -p TestResults
+        python3 ${{ github.action_path }}/main.py 'test-report' ${{ toJson(inputs.config-map) }}
+      shell: bash
+      env:
+        OPERATION: test-report
+
+
+    - name: Test Report Generation for Enterprise
+      uses: actions/upload-artifact@v3
+      with:
+        name: code-report-results
+        path: ${{ steps.run-test.outputs.report-path }}
+      if: |
+        steps.run-test.outputs.report-path &&
+        (inputs.org-folder != 'CDO-KP-ORG' && inputs.org-folder != 'SDS')
+
+
+    - name: Create project cache
+      uses: actions/cache@v4.2.0
+      env:
+        cache-name: nuget-cache
+      with:
+        path:  /home/runner/.nuget
+        key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('**/*.csproj') }}
+      continue-on-error: true
+  
