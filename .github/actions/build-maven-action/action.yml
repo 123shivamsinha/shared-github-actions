@@ -1,0 +1,136 @@
+name: Java and Maven Install Action
+description: "Install specific version of Java and Maven and build artifact"
+
+inputs:
+  operation:
+    required: true
+    description: "Build lifecycle operation"
+    default: build
+  config-map:
+      required: false
+      description: "Config map"
+  org-folder:
+      description: Org folder name (defaults to Git org)
+      default: ${{ github.repository_owner }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set Maven vars from config map
+      id: set-vars
+      run: |
+        python3 ${{ github.action_path }}/main.py ${{ toJson(inputs.config-map) }}
+      shell: bash
+      env:
+        OPERATION: set-vars
+
+    # # commenting until nvm is supported on runner
+    # - name: Install Node
+    #   id: check-npm-version
+    #   run: |
+    #     nvm install ${{ steps.set-vars.outputs.node-version }}
+    #     nvm use ${{ steps.set-vars.outputs.node-version }}
+    #   shell: bash
+    #   continue-on-error: true
+    - name: Install Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ steps.set-vars.outputs.node-version }}
+      if: steps.set-vars.outputs.node-version
+
+    - name: Check for existing Maven cache
+      id: mvn-cache-restore
+      uses: actions/cache@v4.2.0
+      with:
+        path: /home/runner/.m2
+        key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+        restore-keys: |
+          ${{ runner.os }}-maven-
+
+    - name: Check for existing Node cache
+      id: node-cache-restore
+      uses: actions/cache@v4.2.0
+      with:
+        path: /home/runner/.npm
+        key: ${{ runner.os }}-node-${{ hashFiles('**/ui.frontend/package.json') }}
+        restore-keys: |
+          ${{ runner.os }}-node-
+      if: hashFiles('**/ui.frontend/package.json') != ''
+
+    - name: Build with Maven
+      run: |
+        if [[ "${{ inputs.org-folder }}" != 'CDO-KP-ORG' && "${{ inputs.org-folder }}" != 'SDS' ]]; then
+          if [[ "${{ steps.set-vars.outputs.delete-yarn-lock-flag }}" != "False" ]]; then
+            find "${{ github.workspace }}" -name yarn.lock -type f -delete
+            echo "Deleted yarn.lock files."
+          else
+            echo "yarn.lock file is marked as false, not deleting."
+          fi
+        else
+          find "${{ github.workspace }}" -name yarn.lock -type f -delete
+        fi
+        find ${{ github.workspace }} -name 'package-lock.json' -type f -delete
+        find ${{ github.workspace }} -maxdepth 1 -type f -name 'settings.xml' -delete
+        REPO_OWNER=$(echo "${{ github.repository_owner }}" | tr '[:lower:]' '[:upper:]')
+        JAVA_OPTS="-Xms256m -Xmx1536m"
+        unset LOG_LEVEL
+        unset LOGGING_LEVEL
+        rm -rf ${{ github.workspace }}/.github
+        ${{ steps.set-vars.outputs.args-build }}
+      shell: bash
+      if: (inputs.operation == 'build' || inputs.operation == 'build-only')
+
+    - name: Remove artifacts
+      run: |
+        python3 ${{ github.action_path }}/main.py 'remove-artifacts'
+      shell: bash
+      if: (inputs.operation == 'build' || inputs.operation == 'build-only')
+      env:
+        OPERATION: remove-artifacts
+
+    - name: Generate test report
+      id: generate-test-report
+      run: |       
+        python3 ${{ github.action_path }}/main.py ${{ toJson(inputs.config-map) }}
+      shell: bash
+      env:
+        OPERATION: reports
+      if: |
+        (inputs.operation == 'build' || inputs.operation == 'build-only') &&
+        steps.set-vars.outputs.test-flag-enabled == 'true' &&
+        steps.set-vars.outputs.args-test != 'false'
+
+    - name: Upload Jacoco Report
+      uses: actions/upload-artifact@v3
+      with:
+        name: jacoco-html-report
+        path: ${{ steps.generate-test-report.outputs.jacoco-report-path }}
+        retention-days: 2
+      if: ${{ steps.generate-test-report.outputs.jacoco-report-path && github.event_name != 'pull_request' }}
+      
+    # For enterprise added below to store jacoco reports in github blob storage
+    - name: Jacoco Report Generation for Enterprise
+      uses: actions/upload-artifact@v3
+      with:
+        name: code-coverage-results
+        path: |
+          ${{ steps.generate-test-report.outputs.jacoco-report-path }}
+          ${{ steps.generate-test-report.outputs.test-report-path }}
+          ${{ steps.generate-test-report.outputs.html-report-path }}
+      if: |
+        steps.generate-test-report.outputs.jacoco-report-path &&
+        (inputs.org-folder != 'CDO-KP-ORG' && inputs.org-folder != 'SDS')
+
+    - name: Create Maven cache
+      uses: actions/cache@v4.2.0
+      with:
+        path: /home/runner/.m2
+        key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+      if: steps.mvn-cache-restore.outputs.cache-hit != 'true'
+
+    - name: Create Node cache
+      uses: actions/cache@v4.2.0
+      with:
+        path: /home/runner/.npm
+        key: ${{ runner.os }}-node-${{ hashFiles('**/ui.frontend/package.json') }}
+      if: hashFiles('**/ui.frontend/package.json') != '' && steps.node-cache-restore.outputs.cache-hit != 'true'
