@@ -1,0 +1,60 @@
+name: Artifactory
+description: "Artifactory API"
+
+inputs:
+  operation:
+    description: "Flow control variable"
+  download-path:
+    description: "Path to download artifact"
+  context:
+    description: "Context path for download artifact (e.g. 'test')"
+  download-url:
+    description: "URL of artifact to download - will determine from workspace if not supplied"
+  unzip:
+    description: 'Unzip artifact to deploy dir?'
+  set-artifact-props:
+    description: "Artifact props to set"
+  sonar-props:
+    description: "Sonar props to be added to build properties"
+  config-map:
+    description: "Config map"
+  artifact-version:
+    description: 'Override for artifact version'   
+  input-map:
+    description: 'Github input map'    
+
+outputs:
+  artifact-url:
+    value: ${{ steps.artifactory-api.outputs.artifact-url }}
+    description: 'Latest version URL'
+  artifact-properties:
+    value: ${{ steps.artifactory-api.outputs.artifact-properties }}
+    description: 'All artifact properties'
+  image-path:
+    value: ${{ steps.artifactory-api.outputs.image-path }}
+    description: 'Image path'
+  download-artifact:
+    value: ${{ steps.artifactory-api.outputs.download-artifact }}
+    description: 'Relative path of downloaded artifact'
+  jira-comment:
+    description: 'Comments for deploy ticket workflow'
+    value: ${{ steps.artifactory-api.outputs.jira-comment }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Artifactory API
+      id: artifactory-api
+      run: |
+        python3 -u ${{ github.action_path }}/main.py ${{ toJson(inputs.config-map) }}
+      shell: bash
+      env:
+        OPERATION: ${{ inputs.operation }}
+        UNZIP_ARTIFACT: ${{ inputs.unzip }}
+        DOWNLOAD_PATH: ${{ inputs.download-path }}
+        CONTEXT: ${{ inputs.context }}
+        DOWNLOAD_URL: ${{ inputs.download-url }}
+        SET_ARTIFACT_PROPS: ${{ inputs.set-artifact-props }}
+        SONAR_PROPS: ${{ inputs.sonar-props }}
+        ARTIFACT_VERSION_ENV: ${{ inputs.artifact-version }}
+        INPUT_MAP: ${{ inputs.input-map }}
