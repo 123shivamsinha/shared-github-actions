@@ -1,0 +1,76 @@
+name: Load Pipeline Properties
+description: Loads environment vars for use with workflows
+
+inputs:
+  operation:
+    description: Operation to determine which vars to set
+    default: build
+  org-folder:
+    description: Org folder name (defaults to Git org)
+    default: ${{ github.repository_owner }}
+  bot-deploy:
+    description: 'bot deployment flag'
+    required: false
+outputs:
+  config-build-map:
+    description: CI map
+    value: ${{ steps.set-vars.outputs.config-build-map }}
+  config-deploy-map:
+    description: CD map
+    value: ${{ steps.set-vars.outputs.config-deploy-map }}
+
+
+runs:
+  using: "composite"
+  steps:
+    - name: Download artifacts
+      uses: actions/cache@v4.2.0
+      env:
+        cache-name: cicd
+      with:
+        path: ${{ github.workspace }}/cicd
+        key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ github.run_id }}
+        restore-keys: |
+          ${{ runner.os }}-build-${{ env.cache-name }}-${{ github.run_id }}
+
+    - name: Generate token
+      id: generate-token
+      uses: actions/create-github-app-token@v1
+      with:
+        app-id: ${{ env.TEAM_APP_ID }}
+        private-key: ${{ env.TEAM_APP_KEY }}      
+      if: ${{ env.TEAM_APP_KEY && env.TEAM_APP_ID }}
+
+    # # enable for testing
+    # - name: Checkout global properties repo
+    #   uses: devsecops/shared-github-actions/.github/actions/github-checkout-action@v8.29.1
+    #   with:
+    #     repository: devsecops/shared-github-actions-config
+    #     ref: master # modify ref to testing ref
+    #     path: ${{ github.workspace }}/shared-github-actions-config
+    #     token: ${{ env.APP_TOKEN  || env.GITHUB_TOKEN }}
+
+    # # enable for testing
+    # - name: Checkout pipeline properties repo
+    #   uses: devsecops/shared-github-actions/.github/actions/github-checkout-action@v8.29.1
+    #   with:
+    #     repository: devsecops/shared-github-actions-config-cdo-kp-org  # change to respective org config repo name
+    #     ref: master # modify ref to testing ref
+    #     path: ${{ github.workspace }}/shared-github-actions-config-cdo-kp-org  # change to respective org config repo name
+    #     token: ${{ env.APP_TOKEN  || env.GITHUB_TOKEN }}
+
+    - name: Load environment vars
+      id: set-vars
+      run: |
+        python3 -u ${{ github.action_path }}/main.py
+      shell: bash
+      env:
+        OPERATION: ${{ inputs.operation }}
+        ORG_FOLDER: ${{ inputs.org-folder }}
+        APP_TOKEN: ${{ steps.generate-token.outputs.token }}
+
+    - name: Secrets Management using kpconfig
+      uses: devsecops/github-secret-management-actions/.github/actions/secret-management-action@master
+      with:
+        operation: ${{ inputs.operation }}
+        bot-deploy: ${{ inputs.bot-deploy }}
