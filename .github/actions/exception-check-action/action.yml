@@ -1,0 +1,29 @@
+name: Exception Check action
+description: Verify exception status and expiration date
+outputs:
+  exception-status-map:
+    value: ${{ steps.pre_deploy_checks.outputs.exception-status-map }}
+    description: "Exception Status Map Output"
+  exception-expiration-date-status-map:
+    value: ${{ steps.pre_deploy_checks.outputs.exception-expiration-date-map }}
+    description: "Exception Expiration Date Status Map Output"
+
+inputs:
+  gate-type:
+    required: true
+    description: 'gate type'
+  artifactory-prop:
+    required: true
+    description: "artifactory props"
+  
+runs:
+  using: "composite"
+  steps:
+  - name: pre deployment quality checks
+    id: pre_deploy_checks
+    run: |
+      python3 ${{ github.action_path }}/main.py;
+    shell: bash
+    env: 
+      GATE_TYPE: ${{ inputs.gate-type }}
+      ARTIFACTORY_PROP: ${{ inputs.artifactory-prop }}
