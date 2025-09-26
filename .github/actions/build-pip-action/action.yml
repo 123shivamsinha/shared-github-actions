@@ -1,0 +1,133 @@
+name: Python and PIP Install Action
+description: "Install specific version of Python and PIP and build artifact"
+
+inputs:
+  config-map:
+      required: false
+      description: "Config map"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set pip vars from config map
+      id: set-vars
+      run: |
+        python3 ${{ github.action_path }}/main.py ${{ toJson(inputs.config-map) }}
+      shell: bash
+      env:
+        OPERATION: set-vars
+
+    - name: Check for existing cache
+      uses: actions/cache@v4.2.0
+      env:
+        cache-name: pip-cache
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+    
+    - name: Prepare python venv
+      id: py-venv
+      run: |
+        rm -rf build dist || true 
+        cd ${{ github.workspace }}
+        artName=$(python3 setup.py --name)
+        echo $artName
+        rm -rf $artName
+        python3 -m venv $artName --system-site-packages
+        source ./$artName/bin/activate
+        python3 -m pip install --upgrade pip
+        python3 -m pip install ez_setup
+        python3 -m pip install --upgrade setuptools twine
+      shell: bash
+
+    - name: Run unit tests and report coverage
+      id: run-test
+      if: |
+        steps.set-vars.outputs.test-flag-enabled == 'true' &&
+        steps.set-vars.outputs.args-test != 'false'
+      run: |
+        artName=$(python3 setup.py --name)
+        source ./$artName/bin/activate
+        python3 -m pip install -U pytest
+        python3 -m pip install unittest-xml-reporting
+        python3 -m pip install xmlrunner
+        python3 -m pip install coverage
+        if [[ -f ./requirements.txt ]]; then 
+          if [[ -f ./test_dependencies.txt ]]; then 
+            python3 -m pip --no-cache-dir install -r test_dependencies.txt
+          fi;
+          python3 -m pip --no-cache-dir install -r requirements.txt
+        fi;
+        ${{ steps.set-vars.outputs.args-test }}
+        pytest test/*.py
+        coverage run -m pytest test/*.py
+        coverage html
+        coverage xml
+        python3 -m xmlrunner test/*.py -o test-reports
+        python3 ${{ github.action_path }}/main.py 'test-report' ${{ toJson(inputs.config-map) }}
+      shell: bash
+      env:
+        OPERATION: test-report
+    
+    - name: Build with PIP
+      run: |
+        export LOG_LEVEL="ERROR"
+        artName=$(python3 setup.py --name)
+        rm -rf ${{ github.workspace }}/config-repo ${{ github.workspace }}/.github
+        ${{ steps.set-vars.outputs.args-build }}
+        source ./$artName/bin/activate
+        python3 -m pip install psycopg2-binary
+        if [[ ! -f ./requirements.txt ]]; then 
+          python3 setup.py egg_info
+          cp *.egg-info/requires.txt requirements.txt
+        fi;
+        python3 -m pip --no-cache-dir install -r requirements.txt .
+        python3 setup.py sdist
+      shell: bash
+
+    - name: Publish
+      if: env.GHA_ORG == 'CDO-KP-ORG' && fromJson(inputs.config-map).deployable_artifact
+      run: |
+        python3 ${{ github.action_path }}/main.py
+        cp ${{ env.CONSTANTS_PATH }}/.pypirc ~/.pypirc
+        python3 -m twine upload --repository pypi-local ${{ github.workspace }}/dist/*
+      shell: bash
+      env:
+        OPERATION: publish
+
+    - name: Remove python venv
+      id: remove-venv
+      run: |
+        artName=$(python3 setup.py --name)
+        rm -rf $artName
+      shell: bash
+
+    # new action for python app type
+    - name: Test Report Generation for Enterprise
+      uses: actions/upload-artifact@v3
+      with:
+        name: code-report-results
+        path: ${{ steps.run-test.outputs.report-path }}
+      if: |
+        steps.run-test.outputs.report-path &&
+        (inputs.org-folder != 'CDO-KP-ORG' && inputs.org-folder != 'SDS')
+      
+    - name: Remove artifacts
+      run: |
+        python3 ${{ github.action_path }}/main.py 'remove-artifacts'
+      shell: bash
+      if: inputs.operation == 'build'
+      env:
+        OPERATION: remove-artifacts
+
+    - name: Create project cache
+      uses: actions/cache@v4.2.0
+      env:
+        cache-name: pip-cache
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+      continue-on-error: true
+      
