@@ -1,0 +1,66 @@
+name: Actions API
+description: Github Actions API
+inputs:
+  operation:
+    description: 'manifest operation type'
+    default: 'manifest'        
+  pg-data:
+    description: 'postgress data'
+  step-name:
+    description: 'RRB step name'
+  step-comments:
+    description: 'RRB comments'
+  deploy-env:
+    description: 'Deployment environment'
+  crq-nbr:
+    description: 'Change request number'
+  action:
+    description: 'DB insert type'
+  app-type:
+    description: 'APP Type'
+  bot-manifest:
+    description: 'Bot Manifest'
+  app-name: 
+    description: 'app name'  
+  app-version: 
+    description: 'app version'
+  sonar-comments:
+    description: 'sonar project status'
+  nexus-comments:
+    description: 'nexus scan status'
+  tidelift-pct:
+    description: 'tidelift score'
+  checkmarx-comments:
+    description: 'checkmarx status'
+  tidelift-comments:
+    description: 'tidelift comments'         
+
+runs:
+  using:  'composite'
+  steps:
+    - name: Checkout source code
+      uses: devsecops/shared-github-actions/.github/actions/github-checkout-action@v8.29.1
+      with:
+        token: ${{ env.APP_TOKEN || env.GITHUB_TOKEN }}
+
+    - name: Run a Python script
+      run: |
+        python -m venv --system-site-packages ${{ github.action_path }}/pgdbenv
+        source ${{ github.action_path }}/pgdbenv/bin/activate
+        python3 ${{ github.action_path }}/main.py '${{ toJson(inputs.pg-data) }}' "${{ inputs.step-name }}" "${{ inputs.step-comments }}" "${{ inputs.app-type }}" "${{ inputs.deploy-env }}"
+      env:
+        STEP_NAME: ${{inputs.step-name}}
+        STEP_COMMENTS: ${{inputs.step-comments}}
+        DEPLOY_ENV: ${{inputs.deploy-env}}
+        CHG_NBR: ${{inputs.crq-nbr}}
+        ACTION: ${{ inputs.action}}
+        APP_TYPE: ${{ inputs.app-type }}
+        APP_NAME: ${{ inputs.app-name }}
+        APP_VERSION: ${{ inputs.app-version }}
+        NEXUS_COMMENTS: ${{ inputs.nexus-comments }}
+        TIDELIFT_PCT: ${{ inputs.tidelift-pct }}
+        CHECKMARX_COMMENTS: ${{ inputs.checkmarx-comments }}
+        TIDELIFT_COMMENTS: ${{inputs.tidelift-comments}}
+        SONAR_COMMENTS: ${{ inputs.sonar-comments }}
+      if: ${{ inputs.operation == 'postgress' }}
+      shell: bash
