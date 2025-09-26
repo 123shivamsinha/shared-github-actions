@@ -1,0 +1,34 @@
+name: Security Onboarding
+description: "Security Onboarding"
+
+inputs:
+  config-map:
+    required: false
+    description: "Config map"
+
+outputs:
+  notification-map:
+    value: ${{ steps.security-onboarding.outputs.notification-map }}
+    description: 'Error notification map'
+  checkmarx-name:
+    value: ${{ steps.security-onboarding.outputs.checkmarx-name }}
+    description: 'checkMarxOne project name '
+  checkmarx-id:
+    value: ${{ steps.security-onboarding.outputs.checkmarx-id }}
+    description: 'checkMarxOne project Id '
+  nexus-id:
+    value: ${{ steps.security-onboarding.outputs.nexus-id }}
+    description: 'Nexus id '
+  team-name:
+    value: ${{ steps.security-onboarding.outputs.team-name }}
+    description: 'Team Name '  
+
+runs:
+  using: "composite"
+  steps:
+    - name: Security Onboarding
+      id: security-onboarding
+      working-directory: ${{ github.action_path }}
+      run: |
+        python3 -u ${{ github.action_path }}/main.py ${{ toJson(inputs.config-map) }}
+      shell: bash
