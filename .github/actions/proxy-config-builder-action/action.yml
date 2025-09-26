@@ -1,0 +1,11 @@
+name: 'Proxy-Config-Builder'
+description: 'Proxy Config Builder'
+  
+runs:
+  using: "composite"
+  steps:
+  - name: proxy config builder
+    id: proxy-config-builder
+    run: |
+      python3 ${{ github.action_path }}/main.py;
+    shell: bash
