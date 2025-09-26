@@ -1,0 +1,115 @@
+name: Actions API
+description: Github Actions API
+
+inputs:
+  operation:
+    description: 'Select Pipeline Operation'
+  deploy-env:
+    description: 'Deploy env'
+  repo:
+    description: 'Deploy repo'
+  repo-org:
+    description: 'Repo org'
+    default: ${{ github.repository_owner }}
+  repo-branch:
+    description: Repo default branch
+  result-map:
+    description: 'PR check result map'
+  test-type:
+    description: 'Test type'
+    default: smoke
+  check-result:
+    description: 'PR job status'
+  sonar-prcheck:
+    description: 'Sonar PR check status'
+  tidelift-prcheck:
+    description: 'Tidelift PR check status'
+  build-result:
+    description: 'PR build result'
+  artifact-version:
+    description: 'Artifact version'
+  app-type:
+    description: 'App type'
+  tidelift-result:
+    description: 'Tidelift scan result'  
+  tidelift-exception-status:
+    description: 'Tidelift exception status'
+  watch-run:
+    description: 'Wait for remote job to complete'
+  qtest-release-cycle-id:
+    description: 'Qtest release cycle id'
+
+outputs:
+  jira-ticket:
+    description: Jira ticket ID
+    value: ${{ steps.github-api.outputs.jira-ticket }}
+  pr-info:
+    description: PR information
+    value: ${{ steps.github-api.outputs.pr-info }}
+  env-name:
+    description: PR file env 
+    value: ${{ steps.github-api.outputs.env-name }}   
+  test-result:
+    description: 'Deployment validation job status'
+    value: ${{ steps.github-api.outputs.test-result }}
+  test-url:
+    description: 'Test URL'
+    value: ${{ steps.github-api.outputs.test-url }}
+  rate-limit:
+    description: 'API rate limit data'
+    value: ${{ steps.github-api.outputs.rate-limit }}
+  change-set:
+    description: 'PR changeset'
+    value: ${{ steps.github-api.outputs.change-set }}
+
+runs:
+  using: 'composite'
+  steps:
+  - name: Login svc
+    run: |
+      python3 ${{ github.action_path }}/main.py
+    shell: bash
+    env:
+      OPERATION: gha-login
+    if: contains('["deployment-validation", "regression", "update-secrets", "check-secrets", "extension-job", "cross-browser"]', inputs.operation)
+
+  - name: Login gha
+    run: |
+      gh auth login -h $(echo ${{ github.server_url }} | cut -d/ -f3) --with-token <<< $GITHUB_TOKEN
+    shell: bash
+    if: inputs.operation == 'rate-limit' || inputs.operation == 'change-set'
+
+  # temporary until general onboarding to actions
+  - name: Checkout pipeline properties repo
+    uses: devsecops/shared-github-actions/.github/actions/github-checkout-action@v8.29.1
+    with:
+      repository: CDO-KP-ORG/sitewide-validation
+      ref: master
+      path: ${{ github.workspace }}/sitewide-validation
+      token: ${{ env.APP_TOKEN  || env.GITHUB_TOKEN }}
+    if: inputs.operation == 'deployment-validation'
+
+  - name: Github api
+    id: github-api
+    run: |
+      python3 ${{ github.action_path }}/main.py
+    shell: bash
+    env:
+      OPERATION: ${{ inputs.operation }}
+      DEPLOY_ENV: ${{ inputs.deploy-env }}
+      REPO: ${{ inputs.repo }}
+      REPO_ORG: ${{ inputs.repo-org }}
+      BRANCH: ${{ inputs.repo-branch }}
+      RESULT_MAP: ${{ inputs.result-map }}
+      TEST_TYPE: ${{ inputs.test-type }}
+      CHECK_RESULT: ${{ inputs.check-result }}
+      SONAR_PRCHECK: ${{ inputs.sonar-prcheck }}
+      TIDELIFT_PRCHECK: ${{ inputs.tidelift-prcheck }}
+      BUILD_RESULT: ${{ inputs.build-result }}
+      ARTIFACT_VERSION: ${{ inputs.artifact-version }}
+      APP_TYPE: ${{ inputs.app-type }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      TIDELIFT_RESULT: ${{ inputs.tidelift-result }}
+      TIDELIFT_EXCEPTION_STATUS: ${{ inputs.tidelift-exception-status }}
+      WATCH_RUN: ${{ inputs.watch-run }}
+      QTEST_RELEASE_CYCLE_ID: ${{ inputs.qtest-release-cycle-id }}
