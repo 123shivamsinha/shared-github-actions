@@ -1,0 +1,88 @@
+name: Docker custom action
+description: Docker custom action
+
+inputs:
+  github-token:
+    description: token
+    required: false  
+  operation:
+    description: Operation
+    required: false
+    default: build
+  config-map:
+    description: 'Build config map'
+    required: false
+  image:
+    description: 'image to build'
+    required: false
+  image-with-version:
+    description: 'Imagename with version for vendor deployment'
+    required: false
+  deploy-env:
+    description: Deploy env
+
+outputs:
+  image-url:
+    value: ${{ steps.build-image.outputs.image-url }} 
+  target-registry:
+    value: ${{ steps.build-image.outputs.target-registry }} 
+  scan-results:
+    description: 'Scan results for standalone build'
+    value: ${{ steps.build-image.outputs.scan-results }}  
+  docker-image:
+    description: 'Image name for Prisma scan for standalone build'
+    value: ${{ steps.build-image.outputs.docker-image }}
+  docker-image-name:
+    description: 'Image name for Prisma scan'
+    value: ${{ steps.build-image.outputs.docker-image-name }}
+  # outputs for image promotion action
+  deploy-environment:
+    value: ${{ steps.build-image.outputs.deploy-environment }}
+    description: 'Docker image promotion var'
+  app-name:
+    value: ${{ steps.build-image.outputs.app-name }}
+    description: 'Docker image promotion var'
+  app-version:
+    value: ${{ steps.build-image.outputs.app-version }}
+    description: 'Docker image promotion var'
+  image-ssha:
+    value: ${{ steps.build-image.outputs.image-ssha }}
+    description: 'Docker image promotion var'
+  image-path:
+    value: ${{ steps.build-image.outputs.image-path }}
+    description: 'Docker image promotion var'
+  image-dir:
+    value: ${{ steps.build-image.outputs.image-dir }}
+    description: 'Docker image promotion var'
+  image-registry:
+    value: ${{ steps.build-image.outputs.image-registry }}
+    description: 'Docker image promotion var'
+  image-promotion-registry:
+    value: ${{ steps.build-image.outputs.image-promotion-registry }}
+    description: 'Docker image promotion var'
+  image-promotion:
+    value: ${{ steps.build-image.outputs.image-promotion }}
+    description: 'Docker image promotion var'
+  image-map:
+    value: ${{ steps.build-image.outputs.image-map }}
+    description: 'Image map for vendor app image promotion'
+runs:
+  using: 'composite'
+  steps:
+  # temporary workaround for quarkus
+  - name: Copy script to workspace
+    run: |
+      cp ${{ github.action_path }}/run-java.sh ${{ github.workspace }}/run-java.sh
+    shell: bash  
+
+  - name: Build image
+    id: build-image
+    run: |
+      python3 ${{ github.action_path }}/main.py ${{ inputs.operation }}
+    env:
+      GITHUB_TOKEN: ${{ inputs.github-token }}
+      CONFIG_MAP: ${{ inputs.config-map }}
+      DEPLOY_ENV: ${{ inputs.deploy-env }}
+      IMAGE: ${{ inputs.image}}
+      IMAGE_WITH_VERSION: ${{ inputs.image-with-version }}
+    shell: bash
