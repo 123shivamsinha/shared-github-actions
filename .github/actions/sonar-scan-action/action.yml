@@ -1,0 +1,90 @@
+name: Sonar Scan
+description: "Sonarqube scan"
+
+inputs:
+  operation:
+    description: "Flow control variable"
+  config-map:
+      required: false
+      description: "Config map"
+  sonar-clean-build:
+     description: "Enable or disable sonar clean build"
+     required: false
+  org-folder:
+    description: 'Org folder' 
+    default: ${{ github.repository_owner }}
+  bot-rules-map:
+    description: 'BOT deploymemt rules'
+  bot-deploy:
+    description: 'Deployment type'    
+
+
+outputs:
+  quality-gate-status:
+    description: >
+      The resulting Quality Gate Status value of PASSED, WARN or FAILED
+    value: ${{ steps.sonar-quality-status.outputs.quality-gate-status }}
+  sonar-prcheck:
+    description: 'Sonar PR check block merge'
+    value: ${{ steps.check-map.outputs.block-merge }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Run Sonar scan
+      id: sonar-scan
+      run: |
+        sonar-scanner --version
+        python3 -u ${{ github.action_path }}/main.py
+      env:
+        CONFIG_MAP: ${{ inputs.config-map }}
+      shell: bash
+      if: inputs.operation == 'scan'
+
+    - name: Get Sonar quality Status
+      id: sonar-quality-status
+      run: |
+        python3 -u ${{ github.action_path }}/sonar_quality_gate.py ${{ steps.sonar-scan.outputs.scan-report-analysis-id }}
+      env:
+        CONFIG_MAP: ${{ inputs.config-map }}
+        BOT_DEPLOY: ${{ inputs.bot-deploy }}
+        BOT_RULES_MAP: ${{ inputs.bot-rules-map}}
+      shell: bash
+
+    - name: Check result map
+      id: check-map
+      uses: devsecops/shared-github-actions/.github/actions/prcheck-utils-action@v8.29.1
+      with:
+        operation: check-map
+        config-map: ${{ inputs.config-map }}
+        result-map: ${{ steps.sonar-quality-status.outputs.result-map }}  
+      if: |
+        github.event_name == 'pull_request' && !fromJson(inputs.config-map).config_artifact &&
+        (inputs.org-folder == 'CDO-KP-ORG' || inputs.org-folder == 'SDS' || inputs.sonar-clean-build == 'true' )
+                    
+    - name: Comment on PR
+      uses: devsecops/shared-github-actions/.github/actions/github-api-action@v8.29.1
+      with:
+        operation: pr-comment    
+        result-map: ${{ steps.check-map.outputs.result-map }}
+        sonar-prcheck: ${{ steps.check-map.outputs.block-merge }}
+      env: 
+        BRANCH_NAME: ${{ github.ref_name }}
+      if: |
+        github.event_name == 'pull_request' && !fromJson(inputs.config-map).config_artifact &&
+        (inputs.org-folder == 'CDO-KP-ORG' || inputs.org-folder == 'SDS' || inputs.sonar-clean-build == 'true')
+
+    - name: Load to Postgres
+      id: pg-build-transaction
+      if: ${{ github.event_name != 'pull_request' && inputs.bot-deploy == 'true' }}
+      uses: devsecops/shared-github-actions/.github/actions/rrb-pg-transactions-action@v8.29.1
+      with:
+        operation: postgress
+        step-name: 'Sonarqube'
+        step-comments: ${{ steps.sonar-quality-status.outputs.quality-gate-status }}
+        sonar-comments: ${{ steps.sonar-scan.outputs.scan-report-url}}
+        app-type: ${{ fromJson(inputs.config-map).app_props.app_type }}
+        deploy-env: 'Build'
+        app-name: ${{ fromJson(inputs.config-map).app_props.app_name }}
+        app-version: ${{ fromJson(inputs.config-map).auto_deploy_map.artifactTags.artifactReleaseVersion }}
+        action: start
