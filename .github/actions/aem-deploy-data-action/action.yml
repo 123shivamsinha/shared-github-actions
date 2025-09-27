@@ -1,0 +1,153 @@
+name: AEM Deploy Data
+description: AEM Deploy Data
+
+inputs:
+  operation:
+    description: 'Operation'
+  deploy-operation:
+    description: 'Deploy operation'
+  deploy-package:
+    description: 'Deploy package'
+  test-packages:
+    description: 'Manifest test packages'
+  deploy-env:
+    description: 'Deploy environment'
+  artifactory-prop:
+    description: 'Artifactory props'
+  manifest-deploy:
+    description: 'Manifest deploy'
+  critical-pre:
+    description: 'Critical test result'
+  critical-post:
+    description: 'Critical test result'
+  smoke-test:
+    description: 'Smoke test enabled'
+  test-url:
+    description: 'Test URL'    
+  test-result:
+    description: 'Smoke test result'
+  regression-result:
+    description: 'Regression test result'
+  p1-result:
+    description: 'P1 test result'
+  target-result:
+    description: 'Target test result'
+  cd-result:
+    description: 'Continuous deploy result message'
+
+outputs:
+  deployment-data:
+    description: 'Deployment data'
+    value: ${{ steps.deploy-data.outputs.deployment-data }}
+  run-tests:
+    description: 'Run post-deploy tests'
+    value: ${{ steps.deploy-data.outputs.run-tests }}
+  rollback-map:
+    description: 'Rollback map'
+    value: ${{ steps.deploy-data.outputs.rollback-map }}
+  rollback-enabled:
+    description: 'Rollback enabled'
+    value: ${{ steps.deploy-data.outputs.rollback-enabled }}
+  rollback-scenario:
+    description: 'Rollback scenario'
+    value: ${{ steps.deploy-data.outputs.rollback-scenario }}
+  vault-map:
+    description: 'AEM vault info'
+    value: ${{ steps.deploy-data.outputs.vault-map }}
+  deploy-data:
+    description: 'Data for Insights or AEM CD'
+    value: ${{ steps.deploy-data.outputs.deploy-data }}
+  deploy-props:
+    description: 'Data for Artifactory'
+    value: ${{ steps.deploy-data.outputs.deploy-props }}
+  notification-map:
+    description: 'Notifications for deployments'
+    value: ${{ steps.deploy-data.outputs.notification-map }}
+
+runs:
+  using: 'composite'
+  steps:
+  - name: Download deploy map
+    uses: actions/download-artifact@v3
+    with:
+      name: deploy-results-${{ fromJSON(inputs.deploy-package).name }}-${{ inputs.deploy-env }}
+      path: ${{ github.workspace }}
+    if: hashFiles('package_deploy_map.json') == '' && !contains('["create-deploy-map", "update-subtask"]', inputs.operation)
+
+  - name: Set AEM CD constants
+    uses: devsecops/shared-github-actions/.github/actions/pipeline-data-action@v8.29.1
+    with:
+      endpoint: constants
+      method: GET
+      flow: aem-cd
+    if: inputs.operation == 'update-subtask' || (inputs.deploy-package && fromJSON(inputs.deploy-package).cd_deploy)
+
+  - name: Fetch repo RRC
+    uses: devsecops/shared-github-actions/.github/actions/github-checkout-action@v8.29.1
+    with:
+      repository: ${{ fromJson(inputs.artifactory-prop).REPO_ORG[0] }}/${{ fromJson(inputs.artifactory-prop).REPO_NAME[0] }}
+      ref: ${{ fromJson(inputs.artifactory-prop).GIT_BRANCH[0] }}
+      sparse-checkout: ReleaseReadinessConfig.yaml
+      token: ${{ env.APP_TOKEN || env.GITHUB_TOKEN }}
+    if: inputs.operation == 'create-deploy-map' && fromJSON(inputs.deploy-package).cd_deploy
+
+  - name: Deloy data
+    id: deploy-data
+    run: |
+      python3 ${{ github.action_path }}/main.py
+    env:
+      OPERATION: ${{ inputs.operation }}
+      DEPLOY_OPERATION: ${{ inputs.deploy-operation }}
+      CRITICAL_PRE: ${{ inputs.critical-pre }}
+      CRITICAL_POST: ${{ inputs.critical-post }}
+      DEPLOY_PACKAGE: ${{ inputs.deploy-package }}
+      TEST_PACKAGES: ${{ inputs.test-packages }}
+      DEPLOY_ENV: ${{ inputs.deploy-env }}
+      ARTIFACTORY_PROP: ${{ inputs.artifactory-prop }}
+      SMOKE_TEST: ${{ inputs.smoke-test }}
+      TEST_RESULT: ${{ inputs.test-result }}
+      P1_RESULT: ${{ inputs.p1-result }}
+      TARGET_RESULT: ${{ inputs.target-result }}
+      TEST_URL: ${{ inputs.test-url }}
+      REGRESSION_RESULT: ${{ inputs.regression-result }}
+      MANIFEST_DEPLOY: ${{ inputs.manifest-deploy }}
+      CD_RESULT: ${{ inputs.cd-result }}
+    shell: bash
+    if: inputs.operation != 'update-subtask'
+
+  - name: Archive package info
+    uses: actions/upload-artifact@v3
+    with:
+      name: deploy-results-${{ steps.deploy-data.outputs.package-name }}-${{ inputs.deploy-env }}
+      path: package_deploy_map.json
+    if: steps.deploy-data.outputs.package-name
+
+  # Below steps are specific to AEM CD
+  - name: Update Jira deployment ticket subtasks
+    uses: devsecops/shared-github-actions/.github/actions/jira-utils-action@v8.29.1
+    with:
+      operation: manifest-utils
+      action: jira-comments-subtask
+      deployment-ticket: ${{ inputs.artifactory-prop }}
+      subtask-summary: ${{ steps.deploy-data.outputs.jira-comment || inputs.cd-result }}
+    if: steps.deploy-data.outputs.jira-comment || inputs.operation == 'update-subtask'
+
+  - name: Update subtask records
+    uses: devsecops/shared-github-actions/.github/actions/pipeline-data-action@v8.29.1
+    with:
+      endpoint: subtask
+      method: PUT
+      deploy-ticket: ${{ inputs.artifactory-prop }}
+      cd-record: ${{ steps.deploy-data.outputs.jira-comment || inputs.cd-result }}
+    if: steps.deploy-data.outputs.jira-comment || inputs.operation == 'update-subtask'
+
+  - name: Tag artifact with deploy ticket
+    uses: devsecops/shared-github-actions/.github/actions/artifactory-api-action@v8.29.1
+    with:
+      operation: set-props
+      set-artifact-props: "{'JIRA_DEPLOY_TICKET':'${{ steps.deploy-data.outputs.jira-id }}'}"
+      config-map: ${{ inputs.deploy-package }}
+      context: aem
+    if: |
+      steps.deploy-data.outputs.jira-id && 
+      (inputs.artifactory-prop && !fromJson(inputs.artifactory-prop).JIRA_DEPLOY_TICKET[0])
