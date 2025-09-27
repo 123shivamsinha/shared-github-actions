@@ -1,0 +1,39 @@
+name: AEM Utils Action
+description: AEM utils
+
+inputs:
+  operation:
+    description: 'Input description'
+  deploy-map:
+    description: 'Deploy map'
+  deploy-env:
+    description: 'Deploy environment'
+
+outputs:
+  critical-tests:
+    description: 'Critical test environment T/F'
+    value: ${{ steps.aem-utils.outputs.critical-tests }}
+  deploy-environment:
+    description: 'Map of properties for deployment'
+    value: ${{ steps.aem-utils.outputs.deploy-environment }}
+  deploy-packages:
+    description: 'List of packages for deployment'
+    value: ${{ steps.aem-utils.outputs.deploy-packages }}
+  test-artifacts:
+    description: 'Test artifacts'
+    value: ${{ steps.aem-utils.outputs.test-artifacts }}
+  dispatcher-package:
+    description: 'Dispatcher package'
+    value: ${{ steps.aem-utils.outputs.dispatcher-package }}
+
+runs:
+  using: 'composite'
+  steps:
+  - name: Deploy map, prechecks and utils
+    id: aem-utils
+    run: |
+      python3 ${{ github.action_path }}/main.py ${{ toJson(inputs.deploy-map) }}
+    env:
+      OPERATION: ${{ inputs.operation }}
+      DEPLOY_ENV: ${{inputs.deploy-env }}
+    shell: bash
