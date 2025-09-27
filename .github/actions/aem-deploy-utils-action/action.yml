@@ -1,0 +1,77 @@
+name: AEM Deploy Utils Action
+description: AEM deploy utils
+
+inputs:
+  operation:
+    description: 'Input description'
+  deploy-env:
+    description: 'Deploy environment'
+  deploy-package:
+    description: 'Deploy package map'
+  deployment-data:
+    description: 'Deployment data'
+  aem-manifest:
+    description: 'Manifest title for manifest deployment'
+  deploy-ticket:
+    description: 'Deploy ticket'
+  context: 
+    description: 'Test in case of regression, or t/f threshold in case of CD'
+
+outputs:
+  vault-map:
+    description: 'AEM Author & Publisher server configs'
+    value: ${{ steps.deploy-utils.outputs.vault-map }}
+  jira-ticket-details:
+    description: 'Jira details to update ticket'
+    value: ${{ steps.deploy-utils.outputs.jira-ticket-details }}
+  jira-failure-details:
+    description: 'Jira details create issues for failed tests'
+    value: ${{ steps.deploy-utils.outputs.jira-failure-details }}
+  cd-schedule:
+    description: 'CD schedule details'
+    value: ${{ steps.deploy-utils.outputs.cd-schedule }}
+
+runs:
+  using: 'composite'
+  steps:
+  - name: Create vault file
+    run: |
+      echo $AEM_LOWER_ENV | base64 --decode >> ${{ github.workspace }}/ansible.txt
+    shell: bash
+    if: inputs.operation == 'vault-details'|| inputs.operation == 'generate-csv'
+
+  - name: Deploy map, prechecks and utils
+    id: deploy-utils
+    run: |
+      python3 ${{ github.action_path }}/main.py
+    env:
+      OPERATION: ${{ inputs.operation }}
+      DEPLOY_ENV: ${{ inputs.deploy-env }}
+      DEPLOY_PACKAGE: ${{ inputs.deploy-package }}
+      MANIFEST_DEPLOY: ${{ inputs.aem-manifest }}
+      TEST_ARTIFACTS: ${{ inputs.test-artifacts }}
+      DEPLOYMENT_DATA: ${{ inputs.deployment-data }}
+      DEPLOY_TICKET: ${{ inputs.deploy-ticket }}
+      CONTEXT: ${{ inputs.context }}
+    shell: bash
+
+  - name: Archive package info
+    uses: actions/cache@v4.2.0
+    with:
+      path: manifest
+      key: ${{ github.run_id }}-${{ hashFiles('**/manifest') }}
+    if: inputs.operation == 'generate-csv'
+
+  - name: Upload csv file
+    uses: actions/upload-artifact@v3
+    with:
+      name: Csv-file
+      path: ${{ github.workspace }}/csv-results
+    if: inputs.operation == 'generate-csv'
+
+  - name: Archive report html
+    uses: actions/upload-artifact@v3
+    with:
+      name: aem-security-report
+      path: ${{ steps.deploy-utils.outputs.security-report }}
+    if: steps.deploy-utils.outputs.security-report
