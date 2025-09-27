@@ -1,0 +1,26 @@
+name: Send Notifications
+description: "Send email and webhook notifications"
+
+inputs:
+  notification-map:
+    description: Map of vars
+  job-status:
+    description: Job status
+  app-type:
+    description: App type
+  bot-deploy:
+    description: 'Deployment flow type'
+
+runs:
+  using: "composite"
+  steps:
+    - name: Send notifications
+      id: send-notifications
+      run: |
+        python3 -u ${{ github.action_path }}/main.py
+      env:
+        JOB_STATUS: ${{ inputs.job-status }}
+        NOTIFICATION_MAP: ${{ inputs.notification-map }}
+        APP_TYPE: ${{ inputs.app-type }}
+        BOT_DEPLOY: ${{ inputs.bot-deploy }}
+      shell: bash
