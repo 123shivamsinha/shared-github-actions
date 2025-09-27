@@ -1,0 +1,60 @@
+name: AEM Notifications Action
+description: AEM Notifications Action
+
+inputs:
+  operation:
+    description: 'Operation'
+  deploy-operation:
+    description: 'Deploy operation'
+  deploy-packages:
+    description: 'Deploy packages'
+  test-packages:
+    description: 'Test packages'
+  deploy-environment:
+    description: 'Deploy environment'
+  critical-result:
+    description: 'Critical results'
+  aem-manifest:
+    description: 'Manifest name'
+outputs:
+  notification-map:
+    description: 'Notification map'
+    value: ${{ steps.aem-notify.outputs.notification-map }}
+  exclude-packages:
+    description: 'Test packages'
+    value: ${{ steps.aem-notify.outputs.exclude-packages }}
+  result-map:
+    description: 'PR comment map'
+    value: ${{ steps.aem-notify.outputs.result-map }}
+
+runs:
+  using: 'composite'
+  steps:
+  - name: Download artifacts
+    id: download-artifacts
+    uses: actions/download-artifact@v3
+    with:
+      path: ${{ github.action_path }}
+      
+  - name: AEM notify
+    id: aem-notify
+    run: |
+      ls -ltra ${{ github.action_path }}
+      python3 ${{ github.action_path }}/main.py
+    env:
+      OPERATION: ${{ inputs.operation }}
+      DEPLOY_OPERATION: ${{ inputs.deploy-operation }}
+      DEPLOY_PACKAGES: ${{ inputs.deploy-packages }}
+      TEST_PACKAGES: ${{ inputs.test-packages }}
+      DEPLOY_ENVIRONMENT: ${{ inputs.deploy-environment }}
+      CRITICAL_RESULT: ${{ inputs.critical-result }}
+      AEM_MANIFEST_NAME: ${{ inputs.aem-manifest }}
+    shell: bash
+
+  - name: Archive report html
+    uses: actions/upload-artifact@v3
+    with:
+      name: report-deployment-results-${{ inputs.deploy-environment }}
+      path: ${{ github.action_path }}/${{ inputs.deploy-environment }}_deployment_results.*
+    if: steps.aem-notify.outputs.report-content
+    
