@@ -1,0 +1,65 @@
+name: AEM Deploy Utils Action
+description: AEM deploy utils
+
+inputs:
+  operation:
+    description: 'Input operation (e.g., deploy, rollback, confirm-status)'
+  deploy-package:
+    description: 'Deploy package map'
+  deploy-env:
+    description: 'Deploy environment'
+  artifact-path:
+    description: 'Deploy artifact path'
+  manifest-deploy:
+    description: 'AEM manifest deployment'
+  vault-map:
+    description: 'Author and Publisher info'
+
+outputs:
+  deployment-data:
+    description: 'Deploy data'
+    value: ${{ steps.deploy-aem.outputs.deployment-data }}
+  rollback-scenario:
+    description: 'Rollback scenario'
+    value: ${{ steps.deploy-aem.outputs.rollback-scenario }}
+
+runs:
+  using: 'composite'
+  steps:
+  - name: Download deploy map
+    if: inputs.operation != 'confirm-status'
+    uses: actions/download-artifact@v3
+    with:
+      name: deploy-results-${{ fromJSON(inputs.deploy-package).name }}-${{ inputs.deploy-env }}
+      path: ${{ github.workspace }}/deploy-results-${{ fromJSON(inputs.deploy-package).name }}-${{ inputs.deploy-env }}
+    continue-on-error: true
+
+  - name: Load vault-details for confirm-status
+    id: load-vault
+    if: inputs.operation == 'confirm-status' && inputs.vault-map == ''
+    uses: devsecops/shared-github-actions/.github/actions/aem-deploy-utils-action@v8.29.1
+    with:
+      operation: vault-details
+      deploy-env: ${{ inputs.deploy-env }}
+      deploy-package: ${{ inputs.deploy-package }}
+      context: test
+
+  - name: Deploy APIs
+    id: deploy-aem
+    run: |
+      python3 ${{ github.action_path }}/main.py
+    env:
+      VAULT_MAP: ${{ inputs.vault-map || steps.load-vault.outputs.vault-map }}
+      OPERATION: ${{ inputs.operation }}
+      DEPLOY_PACKAGE: ${{ inputs.deploy-package }}
+      DEPLOY_ENV: ${{ inputs.deploy-env }}
+      ARTIFACT_PATH: ${{ inputs.artifact-path }}
+      MANIFEST_DEPLOY: ${{ inputs.manifest-deploy }}
+    shell: bash
+
+  - name: Archive package info
+    if: inputs.operation != 'confirm-status' && hashFiles('package_deploy_map.json') != ''
+    uses: actions/upload-artifact@v3
+    with:
+      name: deploy-results-${{ fromJSON(inputs.deploy-package).name }}-${{ inputs.deploy-env }}
+      path: ${{ github.workspace }}/package_deploy_map.json
